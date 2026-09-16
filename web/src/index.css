@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+:root {
+  --fetch-panel: #FFFFFF;
+  --fetch-line: #EDE4DA;
+  --fetch-muted: #8A8178;
+  --fetch-faint: #B9AFA5;
+  --fetch-red: #B3372B;
+  --fetch-green: #1F7A4D;
+  --fetch-orange: #F5822A;
+  --fetch-ink: #2B1D14;
+  --fetch-cream: #FFF7F0;
+}
+body { background: #FAFAF8; color: var(--fetch-ink); }

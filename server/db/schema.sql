@@ -1,0 +1,32 @@
+-- Fetch prototype schema. Apply with: npm run db:migrate -w server  (needs DATABASE_URL)
+CREATE TABLE IF NOT EXISTS calls (
+  id                TEXT PRIMARY KEY,
+  twenty_contact_id TEXT,
+  contact_name      TEXT NOT NULL,
+  phone_number      TEXT NOT NULL,
+  telnyx_call_id    TEXT,
+  status            TEXT NOT NULL,
+  disposition       TEXT,
+  notes             TEXT,
+  started_at        TIMESTAMPTZ,
+  ended_at          TIMESTAMPTZ,
+  duration_seconds  INTEGER,
+  twenty_note_id    TEXT,
+  logged_at         TIMESTAMPTZ,
+  last_log_error    TEXT,
+  session_id        TEXT,
+  rep_email         TEXT,
+  blocked_reasons   JSONB,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS calls_contact_idx ON calls (twenty_contact_id);
+CREATE INDEX IF NOT EXISTS calls_unlogged_idx ON calls (created_at DESC) WHERE twenty_note_id IS NULL;
+
+-- Fetch Guard rules and other key/value settings (DNC list, permissions, calling hours)
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
