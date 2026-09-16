@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { CallRecord, CallStore } from './types';
 
 const COLS = [
-  'id', 'twenty_contact_id', 'contact_name', 'phone_number', 'telnyx_call_id', 'status', 'disposition',
+  'id', 'twenty_contact_id', 'twenty_object_type', 'contact_name', 'phone_number', 'telnyx_call_id', 'status', 'disposition',
   'notes', 'started_at', 'ended_at', 'duration_seconds', 'twenty_note_id', 'logged_at', 'last_log_error',
   'session_id', 'rep_email', 'blocked_reasons', 'created_at', 'updated_at',
 ];
@@ -19,11 +19,19 @@ function rowToRecord(row: Record<string, unknown>): CallRecord {
 /** PostgreSQL store. Schema lives in db/schema.sql (run `npm run db:migrate -w server`). */
 export class PostgresStore implements CallStore {
   private pool: Pool;
+  private ready: Promise<void>;
   constructor(connectionString: string) {
     this.pool = new Pool({ connectionString });
+    // Phase 2 added calls.twenty_object_type. Deploys don't run db:migrate, so add it here
+    // (idempotent) before any query selects it — otherwise every calls query would fail.
+    this.ready = this.pool
+      .query('ALTER TABLE calls ADD COLUMN IF NOT EXISTS twenty_object_type TEXT')
+      .then(() => undefined)
+      .catch((e) => console.error(`[store] could not add calls.twenty_object_type — run npm run db:migrate -w server: ${e.message}`));
   }
 
   async create(input: Omit<CallRecord, 'createdAt' | 'updatedAt'>) {
+    await this.ready;
     const entries = Object.entries(input);
     const cols = entries.map(([k]) => toSnake(k));
     const vals = entries.map(([k, v]) => (k === 'blockedReasons' && v ? JSON.stringify(v) : v));
@@ -36,11 +44,13 @@ export class PostgresStore implements CallStore {
   }
 
   async get(id: string) {
+    await this.ready;
     const { rows } = await this.pool.query(`SELECT ${COLS.join(', ')} FROM calls WHERE id = $1`, [id]);
     return rows[0] ? rowToRecord(rows[0]) : null;
   }
 
   async update(id: string, patch: Partial<CallRecord>) {
+    await this.ready;
     const entries = Object.entries(patch).filter(([k]) => k !== 'id' && k !== 'createdAt');
     if (!entries.length) return (await this.get(id))!;
     const sets = entries.map(([k], i) => `${toSnake(k)} = $${i + 2}`);
@@ -53,7 +63,8 @@ export class PostgresStore implements CallStore {
   }
 
   async list(opts: { limit?: number; unloggedOnly?: boolean } = {}) {
-    const where = opts.unloggedOnly ? `WHERE twenty_note_id IS NULL AND status NOT IN ('initiated', 'blocked')` : '';
+    await this.ready;
+    const where = opts.unloggedOnly ? `WHERE logged_at IS NULL AND status NOT IN ('initiated', 'blocked')` : '';
     const { rows } = await this.pool.query(
       `SELECT ${COLS.join(', ')} FROM calls ${where} ORDER BY created_at DESC LIMIT $1`,
       [opts.limit ?? 50],

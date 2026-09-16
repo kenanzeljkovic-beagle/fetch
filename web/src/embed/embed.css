@@ -1,0 +1,203 @@
+/* EmbedDialer — tokens follow the mockups: cream panel + white cards (light), warm brown (dark),
+   orange accent, dark keypad in both themes. All rules are scoped under .fd. */
+
+.fd {
+  --accent: #F26A1E;
+  --green: #2FB36D;
+  --red: #D6462F;
+  --key: #2E231C;
+  --key-hi: #3D3028;
+
+  height: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 Inter, -apple-system, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.fd[data-theme="light"] {
+  --bg: #F4EDE3;
+  --card: #FFFFFF;
+  --line: #E8DED2;
+  --text: #2B1F17;
+  --muted: #8B7A6C;
+  --input: #F8F3EC;
+  --accent-soft: #FDE9DA;
+  --accent-line: #F3A06A;
+  --red-soft: #FBE7E3;
+  --red-line: #F0B4A8;
+}
+.fd[data-theme="dark"] {
+  --bg: #1D1612;
+  --card: #2A2119;
+  --line: #3B2F26;
+  --text: #F4EAE0;
+  --muted: #A39284;
+  --input: #211913;
+  --accent-soft: #3A2416;
+  --accent-line: #C7601F;
+  --red-soft: #3A2220;
+  --red-line: #7A3A30;
+}
+
+:where(.fd) *, :where(.fd) *::before, :where(.fd) *::after { box-sizing: border-box; }
+/* :where() keeps this reset at element specificity so .fd-btn-*, .fd-chip, .fd-key still style buttons. */
+:where(.fd) button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+:where(.fd) button:disabled { cursor: default; opacity: 0.55; }
+.fd :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fd-muted { color: var(--muted); }
+.fd-logo { width: 26px; height: 26px; border-radius: 8px; flex: 0 0 auto; }
+
+/* ---- header ------------------------------------------------------------- */
+.fd-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+}
+.fd-brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; }
+.fd-stats { display: flex; gap: 22px; margin-left: auto; }
+.fd-stat { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+.fd-stat-label { color: var(--muted); font-size: 11px; }
+.fd-stat-value { font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
+.fd-head-actions { display: flex; align-items: center; gap: 8px; }
+.fd-iconbtn {
+  width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
+  color: var(--muted); font-size: 16px; line-height: 1;
+}
+.fd-iconbtn:hover { background: var(--bg); color: var(--text); }
+
+/* ---- buttons ------------------------------------------------------------- */
+.fd-btn {
+  height: 36px; padding: 0 16px; border-radius: 9px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap;
+}
+.fd-btn-sm { height: 30px; padding: 0 12px; font-weight: 500; }
+.fd-btn-primary { background: var(--accent); color: #fff; }
+.fd-btn-primary:hover:not(:disabled) { filter: brightness(1.06); }
+.fd-btn-quiet { background: var(--bg); color: var(--text); border: 1px solid var(--line); }
+.fd-btn-quiet:hover:not(:disabled) { border-color: var(--accent-line); }
+.fd-btn-danger { background: var(--red); color: #fff; }
+.fd-btn-danger:hover:not(:disabled) { filter: brightness(1.06); }
+.fd-wide { width: 100%; height: 40px; }
+
+/* ---- body layout: queue + main ------------------------------------------- */
+.fd-body { display: flex; flex: 1; min-height: 0; }
+.fd-queue {
+  width: 180px; flex: 0 0 180px; padding: 14px 10px;
+  border-right: 1px solid var(--line); overflow-y: auto;
+}
+.fd-section-title { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; padding: 0 6px 8px; }
+.fd-queue-empty { color: var(--muted); font-size: 12px; padding: 6px; }
+.fd-queue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.fd-queue-item {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 7px 8px; border-radius: 9px; text-align: left;
+}
+.fd-queue-item:hover:not(:disabled) { background: var(--card); }
+.fd-queue-item[data-active="1"] { background: var(--accent-soft); font-weight: 600; }
+.fd-queue-avatar {
+  width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 10px; font-weight: 700; flex: 0 0 auto;
+}
+.fd-queue-item[data-active="1"] .fd-queue-avatar { background: var(--accent); border-color: var(--accent); color: #fff; }
+.fd-queue-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-queue-dot { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex: 0 0 auto; }
+
+.fd-main { flex: 1; min-width: 0; padding: 16px 18px; display: flex; flex-direction: column; overflow-y: auto; }
+.fd-main-empty { margin: auto; text-align: center; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.fd-main-empty-title { font-weight: 600; font-size: 15px; }
+.fd-main-empty .fd-btn { margin-top: 8px; }
+
+/* ---- active call card ----------------------------------------------------- */
+.fd-who { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.fd-avatar {
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 14px; flex: 0 0 auto;
+}
+.fd-who-text { min-width: 0; }
+.fd-name { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fd-sub { color: var(--muted); font-size: 12px; }
+.fd-timer { margin-left: auto; text-align: right; }
+.fd-clock { font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.fd-status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.fd-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.fd-status[data-state="connected"] { color: var(--green); }
+.fd-status[data-state="connected"] i { background: var(--green); }
+.fd-status[data-state="dialing"] i, .fd-status[data-state="ringing"] i, .fd-status[data-state="checking"] i { background: var(--accent); animation: fd-pulse 1s ease-in-out infinite; }
+.fd-status[data-state="blocked"] { color: var(--red); }
+.fd-status[data-state="blocked"] i { background: var(--red); }
+@keyframes fd-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.fd-callerid {
+  display: inline-flex; gap: 6px; align-self: flex-start;
+  padding: 5px 10px; border-radius: 8px; background: var(--input); color: var(--muted); font-size: 12px; margin-bottom: 12px;
+}
+.fd-callerid span { color: var(--text); font-weight: 500; }
+
+.fd-blocked {
+  padding: 10px 12px; border-radius: 10px; margin-bottom: 12px;
+  background: var(--red-soft); border: 1px solid var(--red-line); color: var(--text); font-size: 12px;
+}
+.fd-blocked-title { color: var(--red); font-weight: 700; margin-bottom: 2px; }
+
+.fd-label { color: var(--muted); font-size: 11px; font-weight: 600; margin: 0 0 6px; display: block; }
+.fd-notes {
+  width: 100%; min-height: 64px; resize: vertical; padding: 8px 10px; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--input); color: var(--text); font: inherit; margin-bottom: 12px;
+}
+.fd-notes:focus { border-color: var(--accent-line); outline: none; }
+
+.fd-outcomes { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.fd-chip {
+  height: 32px; padding: 0 14px; border-radius: 8px;
+  background: var(--card); border: 1px solid var(--line); font-weight: 500;
+}
+.fd-chip:hover { border-color: var(--accent-line); }
+.fd-chip[data-on="1"][data-confirm="1"] { background: var(--red-soft); border-color: var(--red); color: var(--red); }
+.fd-logstatus { font-size: 12px; margin: -6px 0 12px; color: var(--muted); }
+.fd-logstatus[data-state="logged"] { color: var(--green); }
+.fd-logstatus[data-state="failed"] { color: var(--red); }
+.fd-error-block { margin: 0 0 12px; }
+.fd-notes:disabled { opacity: 0.6; }
+.fd-chip[data-on="1"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+.fd-foot { margin-top: auto; display: flex; align-items: center; gap: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.fd-upnext { font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-actions { margin-left: auto; display: flex; gap: 8px; }
+
+/* ---- manual dial ---------------------------------------------------------- */
+.fd-manual { max-width: 300px; margin: 0 auto; padding: 16px 18px 18px; width: 100%; outline: none; }
+.fd-dialrow { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.fd-dialnum {
+  flex: 1; text-align: center; font-size: 22px; font-weight: 600; letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums; padding: 8px 0;
+}
+.fd-keypad {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  padding: 10px; border-radius: 14px; background: var(--key); margin-bottom: 12px;
+}
+.fd-key {
+  height: 48px; border-radius: 9px; background: var(--key-hi); color: #fff;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1;
+}
+.fd-key:hover { filter: brightness(1.15); }
+.fd-key:active { transform: translateY(1px); }
+.fd-key-num { font-size: 16px; font-weight: 600; }
+.fd-key-sub { font-size: 9px; letter-spacing: 0.08em; opacity: 0.7; }
+.fd-error { color: var(--red); font-size: 12px; margin: -4px 0 10px; }
+.fd-guardnote { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; margin-top: 10px; }
+.fd-guardnote i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+/* ---- responsive ------------------------------------------------------------ */
+@media (max-width: 560px) {
+  .fd-stats { display: none; }
+  .fd-queue { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fd-status i { animation: none !important; }
+}

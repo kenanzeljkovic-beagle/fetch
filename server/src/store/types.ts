@@ -14,6 +14,7 @@ export const DISPOSITIONS: Disposition[] = ['connected', 'no_answer', 'voicemail
 export interface CallRecord {
   id: string;
   twentyContactId: string | null; // null for a manual dial with no linked Twenty contact     // source of truth for logging — never re-searched
+  twentyObjectType: 'person' | 'company' | null; // which Twenty object twentyContactId points at (null = manual dial; older records: treat as person)
   contactName: string;
   phoneNumber: string;         // E.164
   telnyxCallId: string | null;

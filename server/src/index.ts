@@ -9,18 +9,23 @@ import { contactsRouter } from './routes/contacts';
 import { telnyxRouter } from './routes/telnyx';
 import { callsRouter } from './routes/calls';
 import { guardRouter } from './routes/guard';
+import { statsRouter } from './routes/stats';
+import { embedHeaders } from './middleware/embedHeaders';
 import { storeKind } from './store';
 
 const app = express();
 app.set('trust proxy', true);
 app.use(express.json());
 app.use(cors({ origin: config.corsOrigins }));
+// The only frame policy: lets Twenty (EMBED_ALLOWED_ORIGINS) frame the app for the extension's dock.
+app.use(embedHeaders(process.env.EMBED_ALLOWED_ORIGINS));
 
 app.use(healthRouter);
 app.use(contactsRouter);
 app.use(telnyxRouter);
 app.use(callsRouter);
 app.use(guardRouter);
+app.use(statsRouter);
 
 // In production the server also serves the built frontend (web/dist).
 const webDist = path.resolve(__dirname, '..', '..', 'web', 'dist');

@@ -1,0 +1,36 @@
+/* "Call with Fetch" tag placed next to phone numbers inside Twenty's own DOM. */
+.fetch-call-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid #F3A06A;
+  background: #FDE9DA;
+  color: #C2530F;
+  font: 600 11px/16px Inter, -apple-system, "Segoe UI", system-ui, sans-serif;
+  cursor: pointer;
+  vertical-align: middle;
+  white-space: nowrap;
+  user-select: none;
+}
+.fetch-call-tag:hover {
+  background: #F26A1E;
+  border-color: #F26A1E;
+  color: #fff;
+}
+.fetch-call-tag[data-dark="1"] {
+  border-color: #C7601F;
+  background: #3A2416;
+  color: #F7B98A;
+}
+.fetch-call-tag[data-dark="1"]:hover {
+  background: #F26A1E;
+  border-color: #F26A1E;
+  color: #fff;
+}
+.fetch-call-tag:focus-visible {
+  outline: 2px solid #F26A1E;
+  outline-offset: 2px;
+}
