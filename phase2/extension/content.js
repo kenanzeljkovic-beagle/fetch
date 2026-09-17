@@ -72,6 +72,30 @@
   const initials = (name) =>
     (name || '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '#';
 
+  // The Twenty record a phone number belongs to. In a table (e.g. /objects/people) the URL names no
+  // record, so it comes from the number's own row; on a record page it comes from the URL.
+  function recordFor(el) {
+    return (el && rowRecord(el)) || currentRecord();
+  }
+
+  // Table rows carry data-selectable-id="<record uuid>". The object type is read only from a link in
+  // that row pointing at that same id: rows also link to related records (a company row's point of
+  // contact), so no other link in the row is trusted. No matching link → no record, never a guess.
+  function rowRecord(el) {
+    const row = el.closest('[data-selectable-id]');
+    const id = row && row.getAttribute('data-selectable-id');
+    if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return null;
+    for (const a of row.querySelectorAll('a[href*="/object/"]')) {
+      const m = (a.getAttribute('href') || '').match(/\/object\/(person|people|company|companies)\/([0-9a-f-]{36})(?:[/?#]|$)/i);
+      if (!m || m[2].toLowerCase() !== id.toLowerCase()) continue;
+      // Display only (the server re-reads the record): the chip's last text leaf, skipping its avatar initial.
+      const leaves = [...a.querySelectorAll('*')].filter((e) => !e.children.length && e.textContent.trim());
+      const name = (leaves.length ? leaves[leaves.length - 1].textContent : a.textContent).trim();
+      return { objectType: /^(person|people)$/i.test(m[1]) ? 'person' : 'company', recordId: id, name, company: '' };
+    }
+    return null;
+  }
+
   // Twenty record pages: /object/person/<uuid> and /object/company/<uuid> (hosted and self-hosted).
   function currentRecord() {
     const m = location.pathname.match(/\/object\/(person|people|company|companies)\/([0-9a-f-]{36})/i);
@@ -330,7 +354,7 @@
     b.dataset.phone = phone;
     b.dataset.dark = theme() === 'dark' ? '1' : '0';
     b.textContent = 'Call with Fetch';
-    b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); showCard(phone, currentRecord()); });
+    b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); showCard(phone, recordFor(b)); });
     return b;
   }
 
@@ -369,7 +393,7 @@
     if (!phone) return;
     e.preventDefault();
     e.stopPropagation();
-    showCard(phone, currentRecord());
+    showCard(phone, recordFor(a));
   }, true);
 
   // ---------------------------------------------------------------- SPA navigation + DOM changes
