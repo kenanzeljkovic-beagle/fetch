@@ -1,8 +1,8 @@
-# Fetch — MVP prototype
+# Fetch
 
-**Version 0.2.0** — see [CHANGELOG.md](./CHANGELOG.md) for what changed each release.
+**Version 0.3.2** — see [CHANGELOG.md](./CHANGELOG.md) for what changed each release.
 
-A browser-based sales dialer that sits between **Twenty CRM** and **Telnyx**.
+Fetch is a browser-based sales dialer for teams that run their pipeline in **Twenty CRM** and place calls over **Telnyx**. A rep picks a Twenty contact (or types a number), Fetch checks the call against its compliance rules, dials it from the browser over WebRTC, and writes the outcome back to that exact contact in Twenty as a note.
 
 ```
 Twenty CRM ──contacts──▶ Fetch ──WebRTC──▶ Telnyx ──▶ PSTN
@@ -10,11 +10,17 @@ Twenty CRM ──contacts──▶ Fetch ──WebRTC──▶ Telnyx ──▶ 
     └───call note──────────┘
 ```
 
-Purpose of this prototype: prove one workflow end to end.
+Fetch runs in two places:
 
-> Twenty contact → Fetch → real Telnyx call → disposition → note on that exact Twenty contact
+- **The Fetch web app** — a standalone dialer page: contact list, manual keypad, call panel, dispositions, and unlogged-call recovery.
+- **The Chrome extension** — brings Fetch into Twenty itself: "Call with Fetch" tags on phone numbers, a floating dock with the dialer, and automatic logging to the record you called from.
 
-Everything else (power dialing, recording, AI, multi-user, subsidiaries) is deliberately out of scope. See **Prototype limitations**.
+What it does:
+
+- **Click-to-call** from a Twenty contact or a manually dialed number, with DTMF and ringback tones.
+- **Fetch Guard** — every call is checked server-side before dialing: internal DNC list, Twenty's `doNotCall` flag, per-rep Company Type permissions, and local calling hours. Refused calls are stored as an audit trail.
+- **Dispositions and notes**, logged to Twenty as a note on the contact's timeline. Logging is idempotent and retryable if Twenty is unreachable.
+- **Server-side Telnyx credentials** — the browser only ever gets a short-lived JWT.
 
 ---
 
@@ -25,10 +31,13 @@ fetch/
 ├── package.json            npm workspaces (server + web), root scripts
 ├── .env.example            every variable you need, with where to find it
 ├── Dockerfile              single-container deploy (server serves the built web app)
+├── CHANGELOG.md
+├── docs/                   design notes (Fetch Guard vs. Watchdog)
 ├── server/                 Node 20 + TypeScript + Express
 │   ├── src/index.ts        app entry: routes, static hosting, error handler
 │   ├── src/config.ts       env loading + validation
-│   ├── src/routes/         health, contacts, telnyx (JWT), calls (lifecycle + logging), guard (rules)
+│   ├── src/routes/         health, contacts, telnyx (JWT), calls (lifecycle + logging), guard (rules), stats
+│   ├── src/middleware/embedHeaders.ts   frame-ancestors policy so Twenty may frame the app
 │   ├── src/services/twenty.ts   Twenty REST client + note logging (+ isolated mock data)
 │   ├── src/services/guard.ts    Fetch Guard: DNC, calling hours, per-rep Company Type permissions
 │   ├── src/services/telnyx.ts   telephony credential + JWT minting (server-side only)
@@ -36,14 +45,30 @@ fetch/
 │   ├── src/lib/phone.ts    E.164 normalisation
 │   ├── db/schema.sql       PostgreSQL schema (optional)
 │   └── scripts/migrate.js  applies schema.sql to DATABASE_URL
-└── web/                    React 18 + TypeScript + Vite + Tailwind
-    ├── src/App.tsx         the one screen: contacts → call → disposition → log
-    ├── src/lib/api.ts      typed client for the Fetch backend
-    ├── src/lib/dialer.ts   TelnyxDialer (real, @telnyx/webrtc) and MockDialer (mock mode)
-    └── src/components/     ContactList, ContactCard, CallPanel, PendingCalls, Banner
+├── web/                    React 18 + TypeScript + Vite + Tailwind
+│   ├── src/App.tsx         the standalone dialer: contacts → call → disposition → log
+│   ├── src/lib/api.ts      typed client for the Fetch backend
+│   ├── src/lib/dialer.ts   TelnyxDialer (real, @telnyx/webrtc) and MockDialer (mock mode)
+│   ├── src/components/     ContactList, ContactCard, CallPanel, Keypad, PendingCalls, Banner
+│   ├── src/embed/          the dialer panel rendered inside the extension's dock (/?embed=1)
+│   ├── src/offscreen/      the extension's offscreen dialer, built into extension/offscreen.js
+│   └── vite.offscreen.config.ts   build config for that bundle
+└── extension/              Chrome extension (Manifest V3)
+    ├── manifest.json
+    ├── content.js          record detection, phone tagging, pill / quick-call card / panel, iframe bridge
+    ├── dock.css.js         dock styles (injected into a shadow root)
+    ├── content.css         "Call with Fetch" tag styles (lives in Twenty's DOM)
+    ├── options.html/js     settings: Twenty URL, Fetch app URL, rep email, theme, microphone grant
+    ├── background.js       opens settings on install / toolbar click; relays the dialer to the offscreen document
+    ├── offscreen.html      hosts the Telnyx client and the mic (offscreen.js is built, not committed)
+    └── icons/
 ```
 
-## Quick start (mock mode, no credentials)
+## Setup
+
+Requirements: **Node 20+**, **Chrome 116+** (for the extension), a Twenty workspace, and a Telnyx account.
+
+### Quick start (mock mode, no credentials)
 
 ```bash
 npm install
@@ -53,13 +78,12 @@ npm run dev                   # server on :4000, web on :5173
 
 Open http://localhost:5173. Contacts are fake and calls are simulated (the `MOCK MODE` badge is shown). Use this to click through the UI. Nothing in mock mode touches Twenty or Telnyx.
 
-## Real setup
-
 ### 1. Twenty
 
 - Sign in to Twenty (cloud: `https://api.twenty.com` is the API base; self-hosted: your domain).
 - **Settings → API & Webhooks → + Create key.** Copy it once.
 - Make sure at least one Person has a phone number in the Phone field.
+- For Fetch Guard, add (Settings → Data model) a boolean `doNotCall` on **People** and a text/select `companyType` on **Companies**.
 
 ```
 TWENTY_API_URL=https://api.twenty.com
@@ -76,13 +100,36 @@ TWENTY_API_KEY=<key>
 4. **Assign the number to that connection** — Numbers → My Numbers → your number → Connection/App = the credential connection from step 3.
 5. Optional: after the first run, the server logs the telephony credential it created. Put it in `TELNYX_CREDENTIAL_ID` so it is reused.
 
-### 3. Run
+### 3. Configure and run the app
 
 ```bash
+npm install
+cp .env.example .env          # fill in the Twenty and Telnyx values, MOCK_MODE=false
 npm run dev
 ```
 
-Open http://localhost:5173 in Chrome. `localhost` counts as a secure origin, so the microphone prompt works. (Any other host needs HTTPS.)
+Open http://localhost:5173 in Chrome. `localhost` counts as a secure origin, so the microphone prompt works. (Any other host needs HTTPS.) `GET /api/health` should report `mode: live` and `problems: []`.
+
+### 4. Chrome extension (Fetch inside Twenty)
+
+1. **Build the offscreen dialer.** MV3 forbids remote code, so the Telnyx SDK is bundled into the extension:
+   ```bash
+   npm run build:extension      # writes extension/offscreen.js
+   ```
+   Re-run it (and reload the extension) whenever `web/src/offscreen/` or `web/src/lib/dialer.ts` changes.
+2. **Load it.** Chrome → `chrome://extensions` → enable Developer mode → **Load unpacked** → pick the `extension/` folder.
+3. **Configure it.** Click the Fetch toolbar icon to open settings: your Twenty URL, the Fetch app URL (`http://localhost:5173` in dev, your deployed HTTPS URL in production), and your email → **Save**. Chrome asks for permission on your Twenty domain (turns the extension on there) and on the Fetch app (lets the dialer fetch its Telnyx token).
+4. **Enable microphone** on the same settings page. The dialer runs in an offscreen document, which can't show a permission prompt, so the mic is granted here once. Until then, dialing fails with an error saying so.
+5. **Allow Twenty to frame Fetch.** Set `EMBED_ALLOWED_ORIGINS=https://<your-twenty-origin>` on the Fetch server and restart/redeploy.
+6. Reload Twenty. The Fetch pill appears bottom-right; open a person with a phone number and call.
+
+How the extension works:
+
+- **Contact association** — the extension sends the Twenty record id from the URL (`/object/person/<uuid>`) or the table row. The server re-reads that record by id before dialing and logging; a name is never used to decide where a note goes.
+- **Where calls run** — the dock is an iframe of the Fetch app (`/?embed=1`), but Telnyx runs in the extension's offscreen document so Twenty's `Permissions-Policy` can't block the mic. Route: iframe `FETCH_DIALER` → `content.js` → `background.js` → `offscreen.js`, and call events come back the same way to the tab that dialed. One Telnyx connection serves every Twenty tab; a second tab can't dial while a call is live, and closing or reloading the tab that owns a call hangs it up.
+- **Storage is partitioned** inside a cross-site iframe, so the embed doesn't share localStorage with the standalone app. The rep email is passed in via `FETCH_INIT`.
+- **Twenty's DOM** — phone fields render as `tel:` links, which the extension keys on first; plain-text numbers in small cells are tagged as a fallback. The extension only ever adds sibling elements and never rewrites React-owned text.
+- **Deploy order** — ship the web app before extension 0.5.0. The current web app still dials in the iframe for older extensions, but 0.5.0 drops `allow="microphone"` from the iframe, so an older web app can't place calls under it.
 
 ---
 
@@ -251,6 +298,7 @@ Requirements in production:
 - Set `CORS_ORIGINS` to your site's origin (only needed if the frontend is hosted separately).
 - Put all variables from `.env.example` in the host's environment settings; never commit `.env`.
 - `MOCK_MODE=false`.
+- `EMBED_ALLOWED_ORIGINS` set to your Twenty origin if reps use the Chrome extension.
 
 ## Test plan
 
@@ -289,7 +337,7 @@ Error cases:
 
 Automated coverage run during development (mock mode and a fake Twenty server): every endpoint above, the outage → retry → single-note path, the duplicate guard, and both phone-number rejections.
 
-## Prototype limitations
+## Current limitations
 
 Intentionally **not** implemented:
 
@@ -307,10 +355,13 @@ Intentionally **not** implemented:
 - Twenty webhooks (contacts are pulled on load / Refresh, not pushed).
 - A native Twenty "Call" object — notes are used instead (see above). A custom `Call` object in Twenty is the planned V1 upgrade.
 
-## Credentials and configuration you must supply
+## Configuration reference
+
+All variables live in `.env` (see `.env.example`).
 
 | Variable | Where it comes from |
 |---|---|
+| `MOCK_MODE` | `false` for real calls; `true` for fake contacts and simulated calls |
 | `TWENTY_API_URL` | `https://api.twenty.com` for cloud, or your self-hosted URL |
 | `TWENTY_API_KEY` | Twenty → Settings → API & Webhooks → + Create key |
 | `TELNYX_API_KEY` | Telnyx Portal → Account → Keys & Credentials → API Keys |
@@ -318,6 +369,6 @@ Intentionally **not** implemented:
 | `TELNYX_PHONE_NUMBER` | a Telnyx number assigned to that connection, E.164 |
 | `TELNYX_CREDENTIAL_ID` | optional; printed by the server on first run, paste it back to reuse |
 | `DATABASE_URL` | optional; PostgreSQL connection string. Empty = JSON file store |
-| `MOCK_MODE` | `false` for real calls |
 | `PORT`, `CORS_ORIGINS` | server port; allowed frontend origin(s) in dev |
-"# fetch" 
+| `EMBED_ALLOWED_ORIGINS` | your Twenty origin(s), comma-separated, so the extension's dock can frame Fetch |
+| `ENABLE_CALL_RECORDING` | reserved; does nothing yet |
