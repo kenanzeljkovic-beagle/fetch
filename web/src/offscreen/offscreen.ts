@@ -1,6 +1,6 @@
 /**
  * Offscreen document — hosts the Telnyx WebRTC client for the Chrome extension.
- * Built into phase2/extension/offscreen.js by `npm run build:extension`.
+ * Built into extension/offscreen.js by `npm run build:extension`.
  *
  * It runs at chrome-extension://<id>, so the microphone permission belongs to the extension and
  * Twenty's Permissions-Policy has no say. Offscreen documents cannot show a permission prompt:
