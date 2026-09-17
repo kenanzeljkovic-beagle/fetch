@@ -75,7 +75,7 @@ export class FileStore implements CallStore {
 
   async list(opts: { limit?: number; unloggedOnly?: boolean } = {}) {
     const all = [...(await this.load()).values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-    const filtered = opts.unloggedOnly ? all.filter((c) => !c.twentyNoteId && c.status !== 'initiated' && c.status !== 'blocked') : all;
+    const filtered = opts.unloggedOnly ? all.filter((c) => !c.loggedAt && c.status !== 'initiated' && c.status !== 'blocked') : all;
     return filtered.slice(0, opts.limit ?? 50);
   }
 }

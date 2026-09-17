@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Fetch Dialer for Twenty",
+  "version": "0.4.0",
+  "description": "Click-to-call, Fetch Guard compliance checks, and automatic call logging inside Twenty CRM.",
+  "permissions": ["storage", "scripting"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://*.twenty.com/*"],
+      "js": ["dock.css.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": { "service_worker": "background.js" },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "action": { "default_title": "Fetch Dialer settings" },
+  "icons": {
+    "16": "icons/fetch-16.png",
+    "48": "icons/fetch-48.png",
+    "128": "icons/fetch-128.png"
+  }
+}

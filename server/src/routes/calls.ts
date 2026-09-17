@@ -2,19 +2,48 @@ import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { config } from '../config';
 import { getStore, DISPOSITIONS, CallStatus, Disposition } from '../store';
-import { isE164, toE164 } from '../lib/phone';
+import { formatForDisplay, isE164, toE164 } from '../lib/phone';
 import { HttpError } from '../lib/errors';
-import { getContact, logCallNote, MOCK_CONTACTS } from '../services/twenty';
+import { Contact, getContact, logCallNote, MOCK_CONTACTS } from '../services/twenty';
 import { addToDnc, checkCall } from '../services/guard';
 
 export const callsRouter = Router();
 
 const STATUSES: CallStatus[] = ['initiated', 'calling', 'connected', 'completed', 'no-answer', 'failed'];
 
+/**
+ * Embed calls name the exact Twenty record they were placed from: { objectType, recordId }.
+ * The record is re-read by id — never searched — and it is the only place the note can go.
+ * Tonight only people are supported; company pages are refused before anything is stored.
+ */
+async function resolveTwentyRecord(twenty: unknown, e164: string): Promise<Contact> {
+  const t = twenty as { objectType?: unknown; recordId?: unknown };
+  if (!t || typeof t !== 'object' || typeof t.recordId !== 'string' || !t.recordId) {
+    throw new HttpError(400, 'twenty must be { objectType, recordId }.', 'BAD_REQUEST');
+  }
+  if (t.objectType === 'company') {
+    throw new HttpError(422, "Calls from a company record aren't supported yet. Open the person's record in Twenty and call from there.", 'COMPANY_NOT_SUPPORTED');
+  }
+  if (t.objectType !== 'person') throw new HttpError(400, 'twenty.objectType must be "person".', 'BAD_REQUEST');
+
+  let contact: Contact | undefined;
+  try {
+    contact = config.mockMode ? MOCK_CONTACTS.find((m) => m.id === t.recordId) : await getContact(t.recordId);
+  } catch (e) {
+    if (!(e instanceof HttpError && e.status === 404)) throw e;
+  }
+  if (!contact) throw new HttpError(404, `No person with id ${t.recordId} exists in Twenty, so the call was not placed.`, 'CONTACT_NOT_FOUND');
+  if (!contact.phones.includes(e164)) {
+    throw new HttpError(409, `${formatForDisplay(e164)} is not one of ${contact.name}'s phone numbers in Twenty, so the call was not placed.`, 'PHONE_MISMATCH');
+  }
+  return contact;
+}
+
 /** Create a call record before dialing. Normalises the number; refuses to proceed if it can't. */
 callsRouter.post('/api/calls', async (req, res, next) => {
   try {
-    const { twentyContactId, contactName, phoneNumber, sessionId, repEmail } = req.body ?? {};
+    const { twentyContactId, contactName, phoneNumber, sessionId, repEmail, twenty } = req.body ?? {};
+    if (twenty != null && twentyContactId != null) throw new HttpError(400, 'Send either twenty or twentyContactId, not both.', 'BAD_REQUEST');
     // twentyContactId is optional — a manual dial (typed on the keypad) has no CRM contact behind it.
     if (twentyContactId != null && typeof twentyContactId !== 'string') throw new HttpError(400, 'twentyContactId must be a string.', 'BAD_REQUEST');
     if (!phoneNumber) throw new HttpError(400, 'Enter a phone number to call.', 'NO_PHONE');
@@ -23,7 +52,10 @@ callsRouter.post('/api/calls', async (req, res, next) => {
 
     // Fetch Guard: re-read the contact from the source of truth (never trust the browser's copy).
     // Manual dials have no CRM record, so only the phone-based rules (internal DNC, calling hours) apply.
-    const contact = !twentyContactId
+    const record = twenty != null ? await resolveTwentyRecord(twenty, e164) : null;
+    const contact = record
+      ? record
+      : !twentyContactId
       ? { doNotCall: false, companyType: null }
       : config.mockMode
       ? MOCK_CONTACTS.find((m) => m.id === twentyContactId) ?? { doNotCall: false, companyType: null }
@@ -32,8 +64,9 @@ callsRouter.post('/api/calls', async (req, res, next) => {
 
     const base = {
       id: randomUUID(),
-      twentyContactId: twentyContactId || null,
-      contactName: String(contactName || '').trim() || (twentyContactId ? '(no name)' : e164),
+      twentyContactId: record ? record.id : twentyContactId || null,
+      twentyObjectType: record || twentyContactId ? ('person' as const) : null,
+      contactName: record ? record.name : String(contactName || '').trim() || (twentyContactId ? '(no name)' : e164),
       phoneNumber: e164,
       telnyxCallId: null,
       disposition: null,
@@ -48,14 +81,17 @@ callsRouter.post('/api/calls', async (req, res, next) => {
       repEmail: repEmail ?? null,
     };
 
+    // Authoritative display values for the embed, straight from the Twenty record.
+    const recordInfo = record ? { name: record.name, company: record.company } : undefined;
+
     if (!guard.allowed) {
       // Refused server-side. The attempt itself is stored — that is the audit trail.
       const blocked = await getStore().create({ ...base, status: 'blocked', blockedReasons: guard.reasons, endedAt: new Date().toISOString() });
-      return res.status(403).json({ error: guard.detail.join(' '), code: 'BLOCKED', reasons: guard.reasons, detail: guard.detail, call: blocked });
+      return res.status(403).json({ error: guard.detail.join(' '), code: 'BLOCKED', reasons: guard.reasons, detail: guard.detail, call: blocked, contact: recordInfo });
     }
 
     const rec = await getStore().create({ ...base, status: 'initiated', blockedReasons: null });
-    res.status(201).json({ call: rec, guard });
+    res.status(201).json({ call: rec, guard, contact: recordInfo });
   } catch (e) { next(e); }
 });
 
@@ -135,7 +171,8 @@ callsRouter.post('/api/calls/:id/log', async (req, res, next) => {
     if (!cur) throw new HttpError(404, 'Call not found.', 'CALL_NOT_FOUND');
     if (cur.twentyNoteId) return res.json({ call: cur, alreadyLogged: true, message: 'Already logged to Twenty.' });
     if (['initiated', 'calling', 'connected'].includes(cur.status)) throw new HttpError(409, 'The call has not ended yet.', 'CALL_ACTIVE');
-    if (!cur.disposition) throw new HttpError(400, 'Pick a disposition before logging the call.', 'NO_DISPOSITION');
+    // A Guard-blocked attempt has no disposition; it is logged as "Blocked by Fetch Guard".
+    if (!cur.disposition && cur.status !== 'blocked') throw new HttpError(400, 'Pick a disposition before logging the call.', 'NO_DISPOSITION');
 
     // Manual dial with no Twenty contact behind it — nothing to write to the CRM, so just
     // mark the call closed out locally. Still real work: it clears the Unlogged Calls list
@@ -152,11 +189,14 @@ callsRouter.post('/api/calls/:id/log', async (req, res, next) => {
 
     try {
       const noteId = await logCallNote({
-        personId: cur.twentyContactId,
+        target: { objectType: cur.twentyObjectType ?? 'person', recordId: cur.twentyContactId },
         contactName: cur.contactName,
         phoneNumber: cur.phoneNumber,
+        callerId: config.telnyx.phoneNumber || null,
+        repEmail: cur.repEmail,
         durationSeconds: cur.durationSeconds ?? 0,
         disposition: cur.disposition,
+        blockedReasons: cur.status === 'blocked' ? cur.blockedReasons : null,
         notes: cur.notes,
         telnyxCallId: cur.telnyxCallId,
         date: new Date(cur.endedAt ?? cur.createdAt),

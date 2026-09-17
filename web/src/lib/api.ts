@@ -29,6 +29,7 @@ export type Disposition = 'connected' | 'no_answer' | 'voicemail' | 'busy' | 'wr
 export interface CallRecord {
   id: string;
   twentyContactId: string | null;
+  twentyObjectType?: 'person' | 'company' | null;
   contactName: string;
   phoneNumber: string;
   telnyxCallId: string | null;
@@ -75,8 +76,13 @@ export const api = {
   health: () => req<Health>('/api/health'),
   contacts: (rep: string | null) => req<{ contacts: Contact[]; source: string }>(`/api/contacts${rep ? `?rep=${encodeURIComponent(rep)}` : ''}`),
   telnyxToken: () => req<{ token?: string; callerNumber: string; mock?: boolean }>('/api/telnyx/token', { method: 'POST' }),
-  createCall: (body: { twentyContactId: string | null; contactName: string; phoneNumber: string | null; sessionId: string; repEmail: string | null }) =>
-    req<{ call: CallRecord; guard?: GuardResult }>('/api/calls', { method: 'POST', body: JSON.stringify(body) }),
+  createCall: (body: {
+    twentyContactId?: string | null;
+    /** Embed: the exact Twenty record the call was placed from. The server re-reads it by id. */
+    twenty?: { objectType: 'person' | 'company'; recordId: string } | null;
+    contactName: string; phoneNumber: string | null; sessionId: string; repEmail: string | null;
+  }) =>
+    req<{ call: CallRecord; guard?: GuardResult; contact?: { name: string; company: string | null } }>('/api/calls', { method: 'POST', body: JSON.stringify(body) }),
   guardRules: () => req<{ rules: GuardRules }>('/api/guard/rules'),
   saveGuardRules: (patch: Partial<GuardRules>) => req<{ rules: GuardRules }>('/api/guard/rules', { method: 'PUT', body: JSON.stringify(patch) }),
   addDnc: (phoneNumber: string) => req<{ rules: GuardRules }>('/api/guard/dnc', { method: 'POST', body: JSON.stringify({ phoneNumber }) }),
@@ -88,16 +94,24 @@ export const api = {
     req<{ call: CallRecord }>(`/api/calls/${id}/notes`, { method: 'POST', body: JSON.stringify({ notes }) }),
   logCall: (id: string) => req<{ call: CallRecord; alreadyLogged?: boolean; mock?: boolean; noContact?: boolean; message?: string }>(`/api/calls/${id}/log`, { method: 'POST' }),
   unloggedCalls: () => req<{ calls: CallRecord[] }>('/api/calls?unlogged=true'),
+  statsToday: (rep: string | null) =>
+    req<{ callsToday: number; connects: number; talkSeconds: number }>(`/api/stats/today${rep ? `?rep=${encodeURIComponent(rep)}` : ''}`),
 };
 
+// Storage can throw inside a third-party iframe (the Twenty embed) when the browser blocks
+// third-party storage, so neither of these may take the app down at import time.
 export const sessionId = (() => {
   const key = 'fetch.sessionId';
-  let v = sessionStorage.getItem(key);
-  if (!v) { v = crypto.randomUUID(); sessionStorage.setItem(key, v); }
-  return v;
+  try {
+    let v = sessionStorage.getItem(key);
+    if (!v) { v = crypto.randomUUID(); sessionStorage.setItem(key, v); }
+    return v;
+  } catch {
+    return crypto.randomUUID();
+  }
 })();
 
 export const repStore = {
-  get: () => localStorage.getItem('fetch.repEmail') || '',
-  set: (v: string) => localStorage.setItem('fetch.repEmail', v.trim().toLowerCase()),
+  get: () => { try { return localStorage.getItem('fetch.repEmail') || ''; } catch { return ''; } },
+  set: (v: string) => { try { localStorage.setItem('fetch.repEmail', v.trim().toLowerCase()); } catch { /* storage blocked */ } },
 };
