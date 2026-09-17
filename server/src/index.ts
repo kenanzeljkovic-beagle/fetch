@@ -19,6 +19,10 @@ app.use(express.json());
 app.use(cors({ origin: config.corsOrigins }));
 // The only frame policy: lets Twenty (EMBED_ALLOWED_ORIGINS) frame the app for the extension's dock.
 app.use(embedHeaders(process.env.EMBED_ALLOWED_ORIGINS));
+app.use((_req, res, next) => {
+  res.setHeader('Permissions-Policy', 'microphone=*');
+  next();
+});
 
 app.use(healthRouter);
 app.use(contactsRouter);
