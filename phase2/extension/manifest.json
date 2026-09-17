@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Fetch Dialer for Twenty",
-  "version": "0.4.0",
+  "version": "0.5.0",
+  "minimum_chrome_version": "116",
   "description": "Click-to-call, Fetch Guard compliance checks, and automatic call logging inside Twenty CRM.",
-  "permissions": ["storage", "scripting"],
+  "permissions": ["storage", "scripting", "offscreen"],
   "optional_host_permissions": ["https://*/*", "http://*/*"],
   "content_scripts": [
     {

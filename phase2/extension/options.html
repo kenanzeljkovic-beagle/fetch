@@ -27,6 +27,13 @@
     #status.ok { color: var(--green); }
     #status.err { color: var(--red); }
     .logo { width: 28px; height: 28px; border-radius: 8px; }
+    .card + .card { margin-top: 16px; }
+    .card h2 { font-size: 15px; margin: 0 0 4px; }
+    .card p { color: var(--muted); margin: 0; }
+    #micStatus { color: var(--muted); }
+    #micStatus.ok { color: var(--green); }
+    #micStatus.err { color: var(--red); }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
@@ -60,6 +67,15 @@
       <div class="row">
         <button id="save">Save settings</button>
         <span id="status"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Microphone</h2>
+      <p>Fetch places calls from the extension itself, so Chrome asks for the microphone here, once.</p>
+      <div class="row">
+        <button id="enableMic">Enable microphone</button>
+        <span id="micStatus"></span>
       </div>
     </div>
   </main>

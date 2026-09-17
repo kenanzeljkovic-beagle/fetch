@@ -8,7 +8,13 @@
  * (frame-ancestors) is what decides which sites may frame the app at all.
  */
 
+import type { DialEvent } from '../lib/dialer';
+
 export type CallState = 'idle' | 'checking' | 'blocked' | 'dialing' | 'ringing' | 'connected' | 'ended';
+
+/** Where Telnyx runs: 'extension' = the extension's offscreen document; 'page' = this iframe (older extensions). */
+export type DialerHost = 'extension' | 'page';
+export type DialerOp = 'connect' | 'dial' | 'hangup';
 
 export interface EmbedContactRef {
   objectType: 'person' | 'company';
@@ -18,16 +24,19 @@ export interface EmbedContactRef {
 }
 
 export type ParentToEmbed =
-  | { type: 'FETCH_INIT'; repEmail: string; theme: 'light' | 'dark'; twentyOrigin: string }
+  | { type: 'FETCH_INIT'; repEmail: string; theme: 'light' | 'dark'; twentyOrigin: string; dialerHost?: DialerHost }
   | { type: 'FETCH_DIAL'; phone: string; contact: EmbedContactRef | null }
   | { type: 'FETCH_THEME'; theme: 'light' | 'dark' }
-  | { type: 'FETCH_OPEN'; view: 'call' | 'manual' };
+  | { type: 'FETCH_OPEN'; view: 'call' | 'manual' }
+  | { type: 'FETCH_DIALER_RESULT'; id: string; ok: boolean; error?: string; callerNumber?: string; mock?: boolean }
+  | { type: 'FETCH_DIALER_EVENT'; event: DialEvent };
 
 export type EmbedToParent =
   | { type: 'FETCH_READY' }
   | { type: 'FETCH_STATE'; state: CallState; seconds: number; contactName: string }
   | { type: 'FETCH_MINIMIZE' }
-  | { type: 'FETCH_CLOSE' };
+  | { type: 'FETCH_CLOSE' }
+  | { type: 'FETCH_DIALER'; id: string; op: DialerOp; destinationNumber?: string };
 
 export function isEmbedded(): boolean {
   return new URLSearchParams(window.location.search).get('embed') === '1' && window.parent !== window;

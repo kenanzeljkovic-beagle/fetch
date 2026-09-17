@@ -12,10 +12,14 @@ function originOf(url) {
   try { return new URL(url).origin; } catch { return null; }
 }
 
+// Any port: localhost:5173 in dev is covered by http://localhost/*.
+function hostPattern(url) {
+  const u = new URL(url);
+  return `${u.protocol}//${u.hostname}/*`;
+}
+
 async function registerFor(origin) {
   const pattern = origin + '/*';
-  const granted = await chrome.permissions.request({ origins: [pattern] });
-  if (!granted) throw new Error('Permission for ' + origin + ' was not granted.');
   try { await chrome.scripting.unregisterContentScripts({ ids: [SCRIPT_ID] }); } catch { /* not registered yet */ }
   await chrome.scripting.registerContentScripts([{
     id: SCRIPT_ID,
@@ -46,6 +50,11 @@ async function save() {
 
   setStatus('Saving…');
   try {
+    // One request, before any other await: Chrome only shows the prompt during the click.
+    // The Fetch app's origin is for the offscreen dialer, which fetches its Telnyx token from there.
+    const origins = [hostPattern(appUrl)];
+    if (twentyUrl) origins.push(originOf(twentyUrl) + '/*');
+    if (!(await chrome.permissions.request({ origins }))) throw new Error('Chrome permission was not granted, so settings were not saved.');
     if (twentyUrl) await registerFor(originOf(twentyUrl));
     await chrome.storage.sync.set({ twentyUrl: twentyUrl ? originOf(twentyUrl) : '', appUrl: originOf(appUrl), repEmail, theme });
     setStatus('Saved. Reload your Twenty tab to see Fetch.', 'ok');
@@ -54,5 +63,31 @@ async function save() {
   }
 }
 
+// Calls run in the extension's offscreen document, which can't show a permission prompt.
+// The grant made here (on chrome-extension://<id>) is the one it uses.
+async function refreshMic() {
+  let state = 'prompt';
+  try {
+    const p = await navigator.permissions.query({ name: 'microphone' });
+    state = p.state;
+    p.onchange = refreshMic;
+  } catch { /* unknown: offer the button */ }
+  const el = $('micStatus');
+  $('enableMic').hidden = state === 'granted';
+  if (state === 'granted') { el.textContent = 'Microphone enabled.'; el.className = 'ok'; }
+  else if (state === 'denied') { el.textContent = 'Microphone is blocked. Click the icon at the left of the address bar, set Microphone to Allow, then reload this page.'; el.className = 'err'; }
+  else { el.textContent = 'Not enabled yet. Fetch cannot place calls until you allow it.'; el.className = ''; }
+}
+
+async function enableMic() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((t) => t.stop());
+  } catch { /* refreshMic shows the result */ }
+  refreshMic();
+}
+
 $('save').addEventListener('click', save);
+$('enableMic').addEventListener('click', enableMic);
 load();
+refreshMic();

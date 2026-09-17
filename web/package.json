@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "build:extension": "tsc -p tsconfig.json --noEmit && vite build -c vite.offscreen.config.ts",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

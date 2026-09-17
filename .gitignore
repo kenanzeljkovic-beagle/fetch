@@ -3,4 +3,5 @@ node_modules/
 server/dist/
 server/data/
 web/dist/
+phase2/extension/offscreen.js
 *.log

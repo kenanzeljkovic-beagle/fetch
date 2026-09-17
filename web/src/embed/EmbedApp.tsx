@@ -16,7 +16,8 @@ import { MockDialer, TelnyxDialer, type DialEvent, type Dialer } from '../lib/di
 import { startRingback, stopRingback } from '../lib/tones';
 import { DISPOSITIONS } from '../components/CallPanel';
 import EmbedDialer, { formatPhone, type CallState, type EmbedContact, type LogStatus, type QueueItem, type Stats } from './EmbedDialer';
-import { onParentMessage, sendToParent, type EmbedContactRef, type ParentToEmbed } from './embedBridge';
+import { onParentMessage, sendToParent, type DialerHost, type EmbedContactRef, type ParentToEmbed } from './embedBridge';
+import { ExtensionDialer } from './extensionDialer';
 
 type TwentyRef = Pick<EmbedContactRef, 'objectType' | 'recordId'>;
 interface QueueEntry extends QueueItem { twenty: TwentyRef | null }
@@ -81,16 +82,32 @@ export default function EmbedApp() {
   const notesTimer = useRef<number | null>(null);
   const confirmTimer = useRef<number | null>(null);
   const dialerPromise = useRef<Promise<Dialer> | null>(null);
+  // Settled by the first FETCH_INIT: whether Telnyx runs in the extension or in this iframe.
+  const dialerHost = useRef<{ promise: Promise<DialerHost>; resolve: (h: DialerHost) => void } | null>(null);
+  if (!dialerHost.current) {
+    let resolve!: (h: DialerHost) => void;
+    dialerHost.current = { promise: new Promise<DialerHost>((r) => { resolve = r; }), resolve };
+  }
 
   const setCallState = (s: CallState) => { stateRef.current = s; setCallStateRaw(s); };
   const setCall = (c: CallRecord | null) => { callRef.current = c; setCallRaw(c); };
   const setNotes = (v: string) => { notesRef.current = v; setNotesRaw(v); };
   const busy = () => stateRef.current === 'checking' || ACTIVE.includes(stateRef.current);
 
-  /** Same dialer the standalone app builds, but connected on mount instead of on first call. */
+  /**
+   * Current extensions run Telnyx in their offscreen document, where the mic isn't subject to
+   * Twenty's Permissions-Policy. Older ones get the standalone app's dialer inside this iframe.
+   * Connected as soon as FETCH_INIT says which, instead of on first call.
+   */
   const getDialer = (): Promise<Dialer> => {
     if (!dialerPromise.current) {
       const p = (async () => {
+        if ((await dialerHost.current!.promise) === 'extension') {
+          const d = new ExtensionDialer();
+          try { await d.ready(); } catch (e) { d.destroy(); throw e; }
+          setCallerId(d.callerNumber);
+          return d;
+        }
         const t = await api.telnyxToken();
         setCallerId(t.callerNumber);
         const d: Dialer = t.mock ? new MockDialer() : new TelnyxDialer(t.token!, t.callerNumber);
@@ -248,6 +265,7 @@ export default function EmbedApp() {
   const handleMessage = (m: ParentToEmbed) => {
     switch (m.type) {
       case 'FETCH_INIT':
+        dialerHost.current!.resolve(m.dialerHost === 'extension' ? 'extension' : 'page'); // later INITs change nothing here
         repRef.current = String(m.repEmail || '').trim().toLowerCase();
         if (m.theme === 'light' || m.theme === 'dark') setTheme(m.theme);
         loadStats();
@@ -266,13 +284,16 @@ export default function EmbedApp() {
   const handlerRef = useRef(handleMessage);
   handlerRef.current = handleMessage;
 
-  // Mount: listen, connect Telnyx, then tell the extension we're ready (it queues messages until then).
+  // Mount: listen, tell the extension we're ready (it queues messages until then), and connect
+  // Telnyx once its FETCH_INIT says where the dialer lives.
   useEffect(() => {
     let cancelled = false;
     const off = onParentMessage((m) => handlerRef.current(m));
-    getDialer()
-      .catch((e) => { if (!cancelled) setError(errMsg(e, 'Could not connect to Telnyx.')); })
-      .finally(() => { if (!cancelled) sendToParent({ type: 'FETCH_READY' }); });
+    sendToParent({ type: 'FETCH_READY' });
+    dialerHost.current!.promise.then(() => {
+      if (cancelled) return;
+      getDialer().catch((e) => { if (!cancelled) setError(errMsg(e, 'Could not connect to Telnyx.')); });
+    });
     return () => {
       cancelled = true;
       off();

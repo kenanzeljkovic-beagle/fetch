@@ -9,15 +9,22 @@
 //     reimplemented here.
 //
 // PROTOCOL (parent → iframe)
-//   FETCH_INIT   { repEmail, theme, twentyOrigin }
+//   FETCH_INIT   { repEmail, theme, twentyOrigin, dialerHost: 'extension' }
 //   FETCH_DIAL   { phone, contact: { objectType, recordId, name, company } | null }
 //   FETCH_THEME  { theme }
 //   FETCH_OPEN   { view: 'call' | 'manual' }
+//   FETCH_DIALER_RESULT { id, ok, error?, callerNumber?, mock? }       answer to FETCH_DIALER
+//   FETCH_DIALER_EVENT  { event: { state, telnyxCallId?, error?, neverConnected? } }
 // PROTOCOL (iframe → parent)
 //   FETCH_READY  {}
 //   FETCH_STATE  { state, seconds, contactName }   state: idle|checking|blocked|dialing|ringing|connected|ended
 //   FETCH_MINIMIZE {}
 //   FETCH_CLOSE  {}
+//   FETCH_DIALER { id, op: 'connect' | 'dial' | 'hangup', destinationNumber? }
+//
+// Calls run in the extension's offscreen document (offscreen.html), not in the iframe, so the
+// microphone belongs to the extension and Twenty's Permissions-Policy can't block it. This file
+// only relays FETCH_DIALER to background.js and passes results and call events back.
 //
 // Contact association: the Twenty record id comes from the URL (/object/person/<uuid>),
 // never from a name match. The server re-reads that record by id before logging anything.
@@ -171,7 +178,7 @@
     frame = document.createElement('iframe');
     frame.className = 'fd-frame';
     frame.title = 'Fetch dialer';
-    frame.allow = 'microphone; autoplay';
+    frame.allow = 'autoplay';          // ringback tone; the mic is used by offscreen.html, not here
     frame.src = S.settings.appUrl.replace(/\/$/, '') + '/?embed=1';
     panel.appendChild(frame);
 
@@ -245,6 +252,25 @@
     if (!S.ready) { S.pending = msg.type === 'FETCH_DIAL' || !S.pending ? msg : S.pending; return; }
     frame.contentWindow.postMessage(msg, S.appOrigin);
   }
+  function initMsg() {
+    return { type: 'FETCH_INIT', repEmail: S.settings.repEmail, theme: theme(), twentyOrigin: location.origin, dialerHost: 'extension' };
+  }
+
+  const EXTENSION_RELOADED = 'The Fetch extension was updated. Reload this tab to keep calling.';
+  function relayDialer(m) {
+    const reply = (r) => post({ ...r, type: 'FETCH_DIALER_RESULT', id: String(m.id || '') });
+    try {
+      chrome.runtime
+        .sendMessage({ target: 'background', type: 'FETCH_DIALER', op: m.op, destinationNumber: m.destinationNumber })
+        .then((r) => reply(r || { ok: false, error: 'The Fetch extension did not answer.' }), () => reply({ ok: false, error: EXTENSION_RELOADED }));
+    } catch {
+      reply({ ok: false, error: EXTENSION_RELOADED }); // chrome.runtime is gone once the extension reloads
+    }
+  }
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg && msg.type === 'FETCH_DIALER_EVENT') post({ type: 'FETCH_DIALER_EVENT', event: msg.event });
+  });
+
   function dial(phone, contact) {
     if (!normalize(phone)) { showToast('<b>Not a valid number.</b> Fetch needs a 10-digit US number or a full international number.'); return; }
     openPanel();
@@ -264,7 +290,7 @@
     switch (m.type) {
       case 'FETCH_READY':
         S.ready = true;
-        post({ type: 'FETCH_INIT', repEmail: S.settings.repEmail, theme: theme(), twentyOrigin: location.origin });
+        post(initMsg());
         if (S.pending) { const p = S.pending; S.pending = null; post(p); }
         break;
       case 'FETCH_STATE':
@@ -277,6 +303,9 @@
       case 'FETCH_MINIMIZE':
       case 'FETCH_CLOSE':
         closePanel();
+        break;
+      case 'FETCH_DIALER':
+        relayDialer(m);
         break;
       default:
         break;
@@ -369,7 +398,7 @@
     if (area !== 'sync') return;
     for (const k of Object.keys(changes)) S.settings[k] = changes[k].newValue;
     if (changes.theme) applyTheme();
-    if (changes.repEmail && S.ready) post({ type: 'FETCH_INIT', repEmail: S.settings.repEmail, theme: theme(), twentyOrigin: location.origin });
+    if (changes.repEmail && S.ready) post(initMsg());
     if (changes.appUrl) showToast('Fetch app URL changed. Reload this tab to use it.');
   });
 })();
