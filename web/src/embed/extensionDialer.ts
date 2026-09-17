@@ -1,8 +1,8 @@
 /**
- * ExtensionDialer — the Dialer the embed uses when the extension hosts Telnyx in its offscreen
- * document (FETCH_INIT.dialerHost === 'extension'). Every call goes iframe → content script →
- * background → offscreen, so the microphone belongs to the extension instead of this cross-origin
- * iframe. Older extensions don't send dialerHost, and EmbedApp keeps using TelnyxDialer for them.
+ * ExtensionDialer — the only Dialer the embed uses. Telnyx runs in the extension's offscreen
+ * document (FETCH_INIT.dialerHost === 'extension'); every call goes iframe → content script →
+ * background → offscreen, so the microphone belongs to the extension and this cross-origin iframe
+ * never touches WebRTC. Older extensions don't send dialerHost, and EmbedApp refuses to dial for them.
  */
 import type { DialEvent, Dialer } from '../lib/dialer';
 import { onParentMessage, sendToParent, type DialerOp } from './embedBridge';

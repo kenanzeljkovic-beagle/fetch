@@ -2,8 +2,12 @@
  * EmbedApp — the container behind /?embed=1 (the dialer panel inside Twenty's dock).
  *
  * Owns embed-only state (session queue, theme, timer, postMessage bridge) and drives EmbedDialer
- * with the same pieces the standalone app uses: the `api` client, TelnyxDialer/MockDialer, the
- * ringback tone, and the disposition list. Guard, call records, and note logging all stay on the
+ * with the same pieces the standalone app uses: the `api` client, the ringback tone, and the
+ * disposition list.
+ *
+ * No WebRTC here. The extension's offscreen document owns Telnyx, the microphone and call audio;
+ * this iframe only drives it through ExtensionDialer. It never creates a Telnyx client, never asks
+ * for a Telnyx token, and never calls getUserMedia. Guard, call records, and note logging all stay on the
  * server exactly as in Phase 1 — this file only sequences those calls.
  *
  * Contact association: a call from Twenty carries { objectType, recordId } from the page URL.
@@ -12,7 +16,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, sessionId, type CallRecord, type Disposition } from '../lib/api';
-import { MockDialer, TelnyxDialer, type DialEvent, type Dialer } from '../lib/dialer';
+import type { DialEvent, Dialer } from '../lib/dialer';
 import { startRingback, stopRingback } from '../lib/tones';
 import { DISPOSITIONS } from '../components/CallPanel';
 import EmbedDialer, { formatPhone, type CallState, type EmbedContact, type LogStatus, type QueueItem, type Stats } from './EmbedDialer';
@@ -95,23 +99,19 @@ export default function EmbedApp() {
   const busy = () => stateRef.current === 'checking' || ACTIVE.includes(stateRef.current);
 
   /**
-   * Current extensions run Telnyx in their offscreen document, where the mic isn't subject to
-   * Twenty's Permissions-Policy. Older ones get the standalone app's dialer inside this iframe.
-   * Connected as soon as FETCH_INIT says which, instead of on first call.
+   * Calls always run in the extension's offscreen document. An extension too old to host the dialer
+   * (its FETCH_INIT has no dialerHost) gets an error, never an in-iframe Telnyx client.
+   * Connected as soon as FETCH_INIT arrives, instead of on first call.
    */
   const getDialer = (): Promise<Dialer> => {
     if (!dialerPromise.current) {
       const p = (async () => {
-        if ((await dialerHost.current!.promise) === 'extension') {
-          const d = new ExtensionDialer();
-          try { await d.ready(); } catch (e) { d.destroy(); throw e; }
-          setCallerId(d.callerNumber);
-          return d;
+        if ((await dialerHost.current!.promise) !== 'extension') {
+          throw new Error('This version of the Fetch extension is out of date and cannot place calls. Update the extension, then reload this tab.');
         }
-        const t = await api.telnyxToken();
-        setCallerId(t.callerNumber);
-        const d: Dialer = t.mock ? new MockDialer() : new TelnyxDialer(t.token!, t.callerNumber);
-        await d.ready();
+        const d = new ExtensionDialer();
+        try { await d.ready(); } catch (e) { d.destroy(); throw e; }
+        setCallerId(d.callerNumber);
         return d;
       })();
       p.catch(() => { if (dialerPromise.current === p) dialerPromise.current = null; }); // next dial retries

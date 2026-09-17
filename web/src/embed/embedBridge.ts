@@ -12,7 +12,7 @@ import type { DialEvent } from '../lib/dialer';
 
 export type CallState = 'idle' | 'checking' | 'blocked' | 'dialing' | 'ringing' | 'connected' | 'ended';
 
-/** Where Telnyx runs: 'extension' = the extension's offscreen document; 'page' = this iframe (older extensions). */
+/** Where Telnyx runs. Only 'extension' (the offscreen document) can place calls; 'page' marks an extension too old to host it. */
 export type DialerHost = 'extension' | 'page';
 export type DialerOp = 'connect' | 'dial' | 'hangup';
 
