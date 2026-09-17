@@ -9,6 +9,10 @@ import { addToDnc, checkCall } from '../services/guard';
 
 export const callsRouter = Router();
 
+/** [fetch:log] trace for the call -> note flow in Railway logs. Never logs note text; phones only by last 4. */
+const trace = (step: string, data: Record<string, unknown>) => console.log(`[fetch:log] ${step} ${JSON.stringify(data)}`);
+const last4 = (p: string | null | undefined) => (p ? `…${String(p).slice(-4)}` : null);
+
 const STATUSES: CallStatus[] = ['initiated', 'calling', 'connected', 'completed', 'no-answer', 'failed'];
 
 /**
@@ -52,7 +56,9 @@ callsRouter.post('/api/calls', async (req, res, next) => {
 
     // Fetch Guard: re-read the contact from the source of truth (never trust the browser's copy).
     // Manual dials have no CRM record, so only the phone-based rules (internal DNC, calling hours) apply.
+    trace('POST /api/calls', { twenty: twenty ?? null, twentyContactId: twentyContactId ?? null, phone: last4(e164), repEmail: repEmail ?? null });
     const record = twenty != null ? await resolveTwentyRecord(twenty, e164) : null;
+    trace('POST /api/calls record', { resolved: record ? record.id : null, name: record?.name ?? null });
     const contact = record
       ? record
       : !twentyContactId
@@ -169,6 +175,10 @@ callsRouter.post('/api/calls/:id/log', async (req, res, next) => {
     const store = getStore();
     const cur = await store.get(req.params.id);
     if (!cur) throw new HttpError(404, 'Call not found.', 'CALL_NOT_FOUND');
+    trace('POST /log start', {
+      callId: cur.id, status: cur.status, disposition: cur.disposition, twentyObjectType: cur.twentyObjectType,
+      twentyContactId: cur.twentyContactId, notesLength: cur.notes?.length ?? 0, twentyNoteId: cur.twentyNoteId,
+    });
     if (cur.twentyNoteId) return res.json({ call: cur, alreadyLogged: true, message: 'Already logged to Twenty.' });
     if (['initiated', 'calling', 'connected'].includes(cur.status)) throw new HttpError(409, 'The call has not ended yet.', 'CALL_ACTIVE');
     // A Guard-blocked attempt has no disposition; it is logged as "Blocked by Fetch Guard".
@@ -178,6 +188,7 @@ callsRouter.post('/api/calls/:id/log', async (req, res, next) => {
     // mark the call closed out locally. Still real work: it clears the Unlogged Calls list
     // and keeps the audit trail (disposition, notes, duration) in Fetch's own store.
     if (!cur.twentyContactId) {
+      trace('POST /log no Twenty record, saved in Fetch only', { callId: cur.id });
       const call = await store.update(cur.id, { loggedAt: new Date().toISOString(), lastLogError: null });
       return res.json({ call, noContact: true, message: 'No Twenty contact linked — saved locally only.' });
     }
@@ -201,9 +212,11 @@ callsRouter.post('/api/calls/:id/log', async (req, res, next) => {
         telnyxCallId: cur.telnyxCallId,
         date: new Date(cur.endedAt ?? cur.createdAt),
       });
+      trace('POST /log Twenty note created', { callId: cur.id, noteId, target: `${cur.twentyObjectType ?? 'person'} ${cur.twentyContactId}` });
       const call = await store.update(cur.id, { twentyNoteId: noteId, loggedAt: new Date().toISOString(), lastLogError: null });
       res.json({ call });
     } catch (e: any) {
+      console.error(`[fetch:log] POST /log Twenty FAILED ${JSON.stringify({ callId: cur.id, status: e.status ?? null, code: e.code ?? null, error: e.message })}`);
       await store.update(cur.id, { lastLogError: e.message });
       throw new HttpError(e.status && e.status !== 404 ? e.status : 502, `Call completed, but the activity could not be logged to Twenty. ${e.message}`, 'TWENTY_LOG_FAILED');
     }

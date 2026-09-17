@@ -41,6 +41,9 @@ function manualToE164(digits: string): string | null {
   return null;
 }
 
+/** [fetch:log] trace of the call -> outcome -> Twenty note flow. Shows in the iframe's console. */
+const trace = (step: string, data?: unknown) => console.log(`[fetch:log] ${step}`, data ?? '');
+
 const errMsg = (e: unknown, fallback: string) => (e instanceof ApiError ? e.message : (e as Error)?.message || fallback);
 
 const toCurrent = (q: QueueEntry): Current => ({
@@ -154,14 +157,28 @@ export default function EmbedApp() {
   const logCall = async (callId: string, disposition: Disposition | null) => {
     const stillCurrent = () => callRef.current?.id === callId;
     setLogStatus({ state: 'logging', message: 'Logging…' });
+    trace('log start', { callId, disposition, twentyContactId: callRef.current?.twentyContactId ?? null, notesLength: notesRef.current.length });
     try {
       if (notesTimer.current) { window.clearTimeout(notesTimer.current); notesTimer.current = null; }
-      await api.saveNotes(callId, notesRef.current).catch(() => { /* logCall surfaces real problems */ });
+      await api.saveNotes(callId, notesRef.current).then(
+        (r) => trace('notes saved', { callId, savedLength: r.call.notes?.length ?? 0 }),
+        (e) => trace('notes save FAILED (continuing)', { callId, error: errMsg(e, 'unknown'), status: (e as ApiError)?.status }),
+      );
       if (disposition) {
         const r = await api.setDisposition(callId, disposition);
+        trace('disposition saved', { callId, disposition: r.call.disposition, addedToDnc: r.addedToDnc });
         if (stillCurrent()) setCall(r.call);
       }
       const r = await api.logCall(callId);
+      trace('POST /log response', {
+        callId,
+        twentyNoteId: r.call.twentyNoteId,
+        twentyContactId: r.call.twentyContactId,
+        noContact: !!r.noContact,
+        alreadyLogged: !!r.alreadyLogged,
+        mock: !!r.mock,
+        lastLogError: r.call.lastLogError,
+      });
       loadStats();
       if (!stillCurrent()) return;
       setCall(r.call);
@@ -170,6 +187,7 @@ export default function EmbedApp() {
         ? { state: 'local', message: `Saved in Fetch. This number isn't a Twenty record, so no note was written.${dnc}` }
         : { state: 'logged', message: `Logged to Twenty${r.mock ? ' (mock)' : ''}.${dnc}` });
     } catch (e) {
+      trace('log FAILED', { callId, error: errMsg(e, 'unknown'), status: (e as ApiError)?.status, code: (e as ApiError)?.code, body: (e as ApiError)?.body });
       if (stillCurrent()) setLogStatus({ state: 'failed', message: `${errMsg(e, 'Could not log the call.')} Pick an outcome to retry.` });
     }
   };
@@ -221,6 +239,7 @@ export default function EmbedApp() {
     setCurrent(target);
     setView('call');
     setCallState('checking');
+    trace('POST /api/calls request', { twenty: target.twenty, phone: target.phone, repEmail: repRef.current || null });
     try {
       const r = await api.createCall({
         twenty: target.twenty,
@@ -229,6 +248,7 @@ export default function EmbedApp() {
         sessionId,
         repEmail: repRef.current || null,
       });
+      trace('POST /api/calls response', { callId: r.call.id, twentyContactId: r.call.twentyContactId, twentyObjectType: r.call.twentyObjectType, contact: r.contact ?? null });
       setCall(r.call);
       if (r.contact && target.twenty) applyRecordInfo(target.twenty.recordId, r.contact);
       if (notesRef.current) scheduleNotesSave();
@@ -237,6 +257,7 @@ export default function EmbedApp() {
       const dialer = await getDialer();
       await dialer.dial(r.call.phoneNumber, onDialEvent);
     } catch (e) {
+      trace('POST /api/calls error', { error: errMsg(e, 'unknown'), status: (e as ApiError)?.status, code: (e as ApiError)?.code });
       if (e instanceof ApiError && e.code === 'BLOCKED') {
         const blocked: CallRecord | null = e.body.call ?? null;
         if (e.body.contact && target.twenty) applyRecordInfo(target.twenty.recordId, e.body.contact);
@@ -253,6 +274,7 @@ export default function EmbedApp() {
   };
 
   const onDialMessage = (phone: string, ref: EmbedContactRef | null) => {
+    trace('FETCH_DIAL received', { phone, contact: ref });
     const twenty = ref ? { objectType: ref.objectType, recordId: ref.recordId } : null;
     const id = twenty ? `${twenty.objectType}:${twenty.recordId}:${phone}` : phone;
     const entry: QueueEntry = { id, name: ref?.name || formatPhone(phone), company: ref?.company || null, phone, twenty };
@@ -326,6 +348,7 @@ export default function EmbedApp() {
   const onOutcome = (code: string) => {
     const cur = callRef.current;
     const d = code as Disposition;
+    trace('outcome clicked', { code, callId: cur?.id ?? null, callState: stateRef.current });
     if (!cur) return;
     if (CONFIRM_FIRST.includes(d) && confirmOutcome !== d) {
       setConfirmOutcome(d);

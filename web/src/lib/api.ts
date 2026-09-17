@@ -35,6 +35,7 @@ export interface CallRecord {
   telnyxCallId: string | null;
   status: CallStatus;
   disposition: Disposition | null;
+  notes?: string | null;
   startedAt: string | null;
   endedAt: string | null;
   durationSeconds: number | null;

@@ -298,13 +298,16 @@
   function dial(phone, contact) {
     if (!normalize(phone)) { showToast('<b>Not a valid number.</b> Fetch needs a 10-digit US number or a full international number.'); return; }
     openPanel();
-    post({
+    const msg = {
       type: 'FETCH_DIAL',
       phone: normalize(phone),
       contact: contact
         ? { objectType: contact.objectType, recordId: contact.recordId, name: contact.name || '', company: contact.company || '' }
         : null,
-    });
+    };
+    // [fetch:log] trace. contact: null means no Twenty record on this page/row, so no note can go to Twenty.
+    console.log('[fetch:log] FETCH_DIAL', msg.contact ? `${msg.contact.objectType} ${msg.contact.recordId}` : 'NO TWENTY RECORD', msg);
+    post(msg);
   }
 
   window.addEventListener('message', (e) => {

@@ -216,10 +216,13 @@ export async function logCallNote(i: CallNoteInput): Promise<string> {
       throw e;
     }
   }
+  console.log(`[fetch:log] Twenty POST /notes ${JSON.stringify({ noteId: note?.id ?? null, title })}`);
   if (!note?.id) throw new HttpError(502, 'Twenty created the note but returned no ID.', 'TWENTY_API');
 
   const targetField = i.target.objectType === 'company' ? 'targetCompanyId' : 'targetPersonId';
-  await request('/noteTargets', { method: 'POST', body: { noteId: note.id, [targetField]: i.target.recordId } });
+  const target = unwrap(await request('/noteTargets', { method: 'POST', body: { noteId: note.id, [targetField]: i.target.recordId } }));
+  // If Twenty ignored the target field, the note exists but shows on no record.
+  console.log(`[fetch:log] Twenty POST /noteTargets ${JSON.stringify({ noteTargetId: target?.id ?? null, noteId: target?.noteId ?? null, [targetField]: target?.[targetField] ?? null, expected: i.target.recordId })}`);
   return note.id;
 }
 
